@@ -21,15 +21,16 @@ void gwOneIteration(GWPARAM *gwParam){
   int numGridProcR = gwParam->numGridProcR;
   int numGridProcT = gwParam->numGridProcT;
   int numGridProcW = gwParam->numGridProcW;
+  int myid = gwParam->myid;
 
   double mu = gwParam->mu;
   double w,k;
   double dw = gwParam->dw;
-  double pre1 = gwParam->pre1;
-  double pre2 = gwParam->pre2;
+  double alpha_rs = gwParam->alpha_rs;
   double epsilonF = gwParam->epsilonF;
 
   double *wGrid = gwParam->wGrid;
+  double *tGrid = gwParam->tGrid;
   double *thetaW_mu = gwParam->thetaW_mu;
   double *thetaW = gwParam->thetaW;
   double *thetaT = gwParam->thetaT;
@@ -67,20 +68,27 @@ void gwOneIteration(GWPARAM *gwParam){
   
   // 4. Calculate Pl, Pg, Pr
   for(iGrid=0;iGrid<numGridProcR;iGrid++){
+    #pragma omp parallel for private(jGrid,index)
     for(jGrid=0;jGrid<numGridT;jGrid++){
       index = iGrid*numGridT+jGrid;
       Pl[index] = 2*I*Gl[index]*conj(Gg[index]);
       //Pg[index] = 2*I*Gg[index]*conj(Gl[index]);
       Pg[index] = -conj(Pl[index]);
-      Pr[index] = -pre1*(Pg[index]-Pl[index])*thetaT[jGrid];
+      Pr[index] = -alpha_rs*M_PI*(Pg[index]-Pl[index])*thetaT[jGrid];
     }   
   }
   
   // 5. Pr FFT r,t->k,w
   fftRTtoKW(gwParam, Pr);
-  
+  //printf
+  if(myid==0){
+     for(jGrid=0;jGrid<numGridT;jGrid++){
+        printf("%f %f %f\n", wGrid[jGrid],creal(Gr[jGrid]),cimag(Gr[jGrid]));
+     }
+  } 
   // 6. Calculate Wr,Wl,Wg from Pr
   for(iGrid=0;iGrid<numGridProcK;iGrid++){
+    #pragma omp parallel for private(jGrid,index)
     for(jGrid=0;jGrid<numGridW;jGrid++){
       index = iGrid*numGridW+jGrid;
       Wr[index] = vkGridProc[iGrid]/(1.0-vkGridProc[iGrid]*(creal(Pr[index])+I*fabs(cimag(Pr[index]))));
@@ -95,6 +103,7 @@ void gwOneIteration(GWPARAM *gwParam){
 
   // 8. Calculate Sl,Sg,Sr
   for(iGrid=0;iGrid<numGridProcR;iGrid++){
+    #pragma omp parallel for private(jGrid,index)
      for(jGrid=0;jGrid<numGridT;jGrid++){
        index = iGrid*numGridT+jGrid;
        Sl[index] = I*Gl[index]*Wl[index];
@@ -108,10 +117,11 @@ void gwOneIteration(GWPARAM *gwParam){
   
   // 10. Update Gr
   for(iGrid=0;iGrid<numGridProcK;iGrid++){
+    #pragma omp parallel for private(jGrid,index)
     for(jGrid=0;jGrid<numGridW;jGrid++){
       index = iGrid*numGridW+jGrid;
-//      Gr[index] = 1.0/(wGrid[jGrid]-epsilonKGridProc[iGrid]-mu-(pre2*(-creal(Sr[index])+I*cimag(Sr[index]))+Sr_HF[iGrid]));
-      Gr[index] = 1.0/(wGrid[jGrid]-epsilonKGridProc[iGrid]-mu-(pre2*(-creal(Sr[index])+I*cimag(Sr[index]))));
+//      Gr[index] = 1.0/(wGrid[jGrid]-epsilonKGridProc[iGrid]-mu-(alpha_rs*(-creal(Sr[index])+I*cimag(Sr[index]))+Sr_HF[iGrid]));
+      Gr[index] = 1.0/(wGrid[jGrid]-epsilonKGridProc[iGrid]-mu-(alpha_rs*(-creal(Sr[index])+I*cimag(Sr[index]))));
     }
   }  
 }
@@ -182,11 +192,37 @@ void fftRTtoKW(GWPARAM *gwParam, double complex *input){
                  MPI_DOUBLE,0,MPI_COMM_WORLD);
   }
 
+  // inputFake multiply by rGrid*dt*numGridT
+  for(iGrid=0;iGrid<numGridProcW;iGrid++){
+    #pragma omp parallel for private(jGrid,index)
+    for(jGrid=0;jGrid<numGridK;jGrid++){
+      index = iGrid*numGridK+jGrid;
+      inputFake[index] *=gwParam->rGrid[jGrid]*gwParam->dt*numGridT; 
+    }
+  }
+  // inputFake symmetrize
+  for(iGrid=0;iGrid<numGridProcW;iGrid++){
+    #pragma omp parallel for private(jGrid,index)
+    for(jGrid=numGridK/2+1;jGrid<numGridK;jGrid++){
+      index = iGrid*numGridK+jGrid;
+      inputFake[index] = inputFake[iGrid*numGridK+numGridK-jGrid];
+    }
+  }
+
   // 4. Transform r->k (w,r->w,k)
   for(iGrid=0;iGrid<numGridProcW;iGrid++){
     memcpy(in_backward_rk,&inputFake[iGrid*numGridT],numGridR*sizeof(double complex));
     fftw_execute(gwParam->plan_rk_backward);
     memcpy(&inputFake[iGrid*numGridT],in_backward_rk,numGridR*sizeof(double complex));
+  }
+
+  // inputFake multiply by -1j/kGrid*dr*numGridR/(2.0*pi)**2 * (2.0*pi)**3
+  for(iGrid=0;iGrid<numGridProcW;iGrid++){
+    #pragma omp parallel for private(jGrid,index)
+    for(jGrid=0;jGrid<numGridK;jGrid++){
+      index = iGrid*numGridK+jGrid;
+      inputFake[index] *= -I*2.0*M_PI/gwParam->kGrid[jGrid]*gwParam->dr*numGridR; 
+    }
   }
 
   // 5. MPI gatherv 
@@ -282,6 +318,23 @@ void fftKWtoRT(GWPARAM *gwParam, double complex *input){
                  MPI_DOUBLE,0,MPI_COMM_WORLD);
   }
 
+  // inputFake multiply by kGrid/dt/numGridT
+  for(iGrid=0;iGrid<numGridProcW;iGrid++){
+    #pragma omp parallel for private(jGrid,index)
+    for(jGrid=0;jGrid<numGridK;jGrid++){
+      index = iGrid*numGridK+jGrid;
+      inputFake[index] *= gwParam->kGrid[jGrid]/gwParam->dt/numGridT; 
+    }
+  }
+  // inputFake symmetrize
+  for(iGrid=0;iGrid<numGridProcW;iGrid++){
+    #pragma omp parallel for private(jGrid,index)
+    for(jGrid=numGridK/2+1;jGrid<numGridK;jGrid++){
+      index = iGrid*numGridK+jGrid;
+      inputFake[index] = inputFake[iGrid*numGridK+numGridK-jGrid];
+    }
+  }
+
   // 4. Transform k->r (t,k->t,r)
   for(iGrid=0;iGrid<numGridProcW;iGrid++){
     memcpy(in_forward_rk,&inputFake[iGrid*numGridT],numGridR*sizeof(double complex));
@@ -289,6 +342,14 @@ void fftKWtoRT(GWPARAM *gwParam, double complex *input){
     memcpy(&inputFake[iGrid*numGridT],in_forward_rk,numGridR*sizeof(double complex));
   }
 
+  // inputFake multiply by 1j*2*pi/(2*pi)**2/rGrid/dr/numGridR
+  for(iGrid=0;iGrid<numGridProcW;iGrid++){
+    #pragma omp parallel for private(jGrid,index)
+    for(jGrid=0;jGrid<numGridK;jGrid++){
+      index = iGrid*numGridK+jGrid;
+      inputFake[index] *= I/2.0/M_PI/gwParam->rGrid[jGrid]/gwParam->dr/numGridR; 
+     }
+  }
   // 5. MPI gatherv 
   if(numProc>1){
     MPI_Gatherv(inputFake,countTW,MPI_DOUBLE,temp,allCountsTW,displsTW,
@@ -326,7 +387,7 @@ void init(GWPARAM *gwParam){
   int numGridProcK,numGridProcR,numGridProcT,numGridProcW;
   int displKRPoint; // starting index of Vk, epsilonK on each process
   int *allCountsRK,*allCountsTW,*displsRK,*displsTW;
-  double w,dw,k,dk,mu;
+  double w,dw,k,dk,dr,mu;
   double epsilonF;
 
   gwParam->numGridK = NGRID_RK;
@@ -448,12 +509,14 @@ void init(GWPARAM *gwParam){
   gwParam->epsilonF = EPSILON_F;
   dw = gwParam->dw;
   dk = gwParam->dk;
+  dr = gwParam->dr;
   mu = gwParam->mu;
   epsilonF = gwParam->epsilonF;
 
 
   // Initialize more grids
   double *wGrid;
+  double *tGrid;
   double *kGrid;
   double *rGrid;
   double *thetaW_mu;
@@ -465,12 +528,14 @@ void init(GWPARAM *gwParam){
   double *epsilonKGridProc; 
 
   gwParam->wGrid = (double*)calloc(numGridW,sizeof(double));
+  gwParam->tGrid = (double*)calloc(numGridW,sizeof(double));
   gwParam->kGrid = (double*)calloc(numGridK,sizeof(double));
   gwParam->rGrid = (double*)calloc(numGridR,sizeof(double));
   gwParam->thetaW_mu = (double*)calloc(numGridW,sizeof(double));
   gwParam->thetaW = (double*)calloc(numGridW,sizeof(double));
   gwParam->thetaT = (double*)calloc(numGridW,sizeof(double));
   wGrid = gwParam->wGrid;
+  tGrid = gwParam->tGrid;
   kGrid = gwParam->kGrid;
   rGrid = gwParam->rGrid;
   thetaW_mu = gwParam->thetaW_mu;
@@ -483,38 +548,42 @@ void init(GWPARAM *gwParam){
   epsilonKGridProc = gwParam->epsilonKGridProc;
   vkGrid = (double*)calloc(numGridK,sizeof(double));
   epsilonKGrid = (double*)calloc(numGridK,sizeof(double));
-
+  
+  // thetaW, thetaT,thetaW_mu, tGrid, wGrid
   for(iGrid=0;iGrid<numGridW;iGrid++){
-    if(iGrid<numGridW/2){
+    if(iGrid<numGridW/2+1){
       w = iGrid*dw;
       thetaW[iGrid] = 1.0;
       thetaT[iGrid] = 1.0;
+      tGrid[iGrid] = iGrid*gwParam->dt;
     }  
     else{
       w = (iGrid-numGridW)*dw;
+      tGrid[iGrid] = (iGrid-numGridW)*gwParam->dt;
     }   
     if(w>=mu)thetaW_mu[iGrid] = 1.0;
     wGrid[iGrid] = w;
   }
 
-  for(iGrid=0;iGrid<numGridW;iGrid++){
-    if(iGrid<numGridW/2){
-      w = iGrid*dw;
-      thetaW[iGrid] = 1.0;
-      thetaT[iGrid] = 1.0;
+  // kGrid, rGrid 
+  kGrid[0]= K_ETA;
+  rGrid[0]= R_ETA;
+  for(iGrid=1;iGrid<numGridK;iGrid++){
+    if(iGrid<numGridK/2+1){
+      kGrid[iGrid] = iGrid*dk;
+      rGrid[iGrid] = iGrid*dr;
     }  
     else{
-      w = (iGrid-numGridW)*dw;
+      kGrid[iGrid] = (iGrid-numGridK)*dk;
+      rGrid[iGrid] = (iGrid-numGridK)*dr;
     }   
-    if(w>=mu)thetaW_mu[iGrid] = 1.0;
-    wGrid[iGrid] = w;
   }
 
-
+  // vkGridProc, epsilonKGridProc 
   vkGrid[0] = 4.0*M_PI/(K_ETA*K_ETA);
   epsilonKGrid[0] = -epsilonF;
   for(iGrid=1;iGrid<numGridK;iGrid++){
-    if(iGrid<numGridK/2){
+    if(iGrid<numGridK/2+1){
       k = iGrid*dk;
     }
     else{
@@ -526,9 +595,13 @@ void init(GWPARAM *gwParam){
   memcpy(vkGridProc,&vkGrid[displKRPoint],numGridProcR*sizeof(double));
   memcpy(epsilonKGridProc,&epsilonKGrid[displKRPoint],numGridProcR*sizeof(double));
 
+  // Initialize prefactor (unit conversion) 
+  gwParam->alpha_rs = ALPHA_RS;
+
   // initialize Gr 
   double complex *Gr = gwParam->Gr;
   for(iGrid=0;iGrid<numGridProcK;iGrid++){
+    #pragma omp parallel for private(jGrid,index)
     for(jGrid=0;jGrid<numGridW;jGrid++){
       index = iGrid*numGridW+jGrid;
       Gr[index] = 1.0/(wGrid[jGrid]-epsilonKGridProc[iGrid]+I*GF_ETA);

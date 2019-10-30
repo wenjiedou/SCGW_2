@@ -4,10 +4,11 @@
 #define R_ETA 1.0e-6
 #define GF_ETA 1.0e-3
 #define EPSILON_F 0.25
-#define NGRID_RK 1000
-#define NGRID_TW 1000
+#define NGRID_RK 1001
+#define NGRID_TW 1001
 #define K_MAX 100.0
 #define W_MAX 20.0
+#define ALPHA_RS 20.0
 #define M_PI 3.14159265358979323846
 
 typedef struct gwparam{
@@ -18,11 +19,10 @@ typedef struct gwparam{
   double complex *Sl,*Sg,*Sr; // Self-energy Sigma
   double mu;                  // chemical potential
   double dr,dk,dt,dw;         // Grid Spacing
-  double *wGrid,*kGrid,*rGrid; // w, k, R grid       
+  double *wGrid,*tGrid,*kGrid,*rGrid; // w, t, k, R grid       
   double *thetaW_mu,*thetaT,*thetaW; // theta(w-mu), theta(T), theta(w) grid
   double *vkGridProc,*epsilonKGridProc; // vk = 4*pi/k**2, epsilon_k = k**2/2 grid 
-  double pre1;                // Prefactor for Pr (between Eq(9) and Eq(10)), alpha*r_s*M_PI
-  double pre2;                // alpha*r_s
+  double alpha_rs;                // alpha*Rs 
   double epsilonF;            // epsilon_F
   int numGridK,numGridR,numGridT,numGridW; //numGridK=numGridR,numGridT=numGridW
   int numGridProcK,numGridProcR,numGridProcT,numGridProcW;

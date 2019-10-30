@@ -1,6 +1,6 @@
 CC=mpiicc
 #CFLAGS= -O2 -msse4.2 -std=c99 -qopenmp
-CFLAGS= -O0 -g -qopenmp 
+#CFLAGS= -O0 -g -qopenmp 
 LIB = -L/opt/intel/compilers_and_libraries_2018.2.199/linux/mkl/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lm
 
 ROOTDIR=.

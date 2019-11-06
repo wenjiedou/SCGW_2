@@ -10,6 +10,8 @@
 #define W_MAX 20.0
 #define ALPHA_RS 20.0
 #define M_PI 3.14159265358979323846
+#define NTHREADS 1
+//OMP_NUM_THREADS
 
 typedef struct gwparam{
   // r: retarded l: less g: greater

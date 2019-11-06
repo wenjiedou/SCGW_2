@@ -28,6 +28,7 @@ int main(int argc, char *argv[]){
   // calculation....
 
   clean(gwParam);
+  printf("finish clean");
   MPI_Finalize();
   
   return 1;

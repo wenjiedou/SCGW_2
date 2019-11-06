@@ -122,6 +122,7 @@ void gwOneIteration(GWPARAM *gwParam){
       index = iGrid*numGridW+jGrid;
 //      Gr[index] = 1.0/(wGrid[jGrid]-epsilonKGridProc[iGrid]-mu-(alpha_rs*(-creal(Sr[index])+I*cimag(Sr[index]))+Sr_HF[iGrid]));
       Gr[index] = 1.0/(wGrid[jGrid]-epsilonKGridProc[iGrid]-mu-(alpha_rs*(-creal(Sr[index])+I*cimag(Sr[index]))));
+      printf("Grrrrrrrrrrrrr %lg\n",Gr[index]);
     }
   }  
 }
@@ -511,8 +512,10 @@ void init(GWPARAM *gwParam){
 
   // initialize openMP
   // You can set the number of threads by setting OMP_NUM_THREADS
-  gwParam->numThreads = omp_get_num_threads();
+  omp_set_num_threads(NTHREADS);
+  gwParam->numThreads = omp_get_max_threads();
   numThreads = gwParam->numThreads;
+  printf("numThreads %i\n",numThreads);
 
   // FFTW initialize
   
@@ -526,6 +529,7 @@ void init(GWPARAM *gwParam){
     gwParam->in_backward_rk[iThread] = (fftw_complex*)fftw_malloc(numGridR*sizeof(fftw_complex));
     gwParam->in_forward_tw[iThread] = (fftw_complex*)fftw_malloc(numGridT*sizeof(fftw_complex));
     gwParam->in_backward_tw[iThread] = (fftw_complex*)fftw_malloc(numGridT*sizeof(fftw_complex));
+    printf("111111111111111 %i %p %p %p %p\n",iThread,gwParam->in_forward_rk[iThread],gwParam->in_backward_rk[iThread],gwParam->in_forward_tw[iThread],gwParam->in_backward_tw[iThread]);
   }
   gwParam->plan_rk_forward = (fftw_plan*)malloc(numThreads*sizeof(fftw_plan)); 
   gwParam->plan_rk_backward = (fftw_plan*)malloc(numThreads*sizeof(fftw_plan));

@@ -2,8 +2,8 @@
 
 #include </usr/local/include/fftw3.h>
 
-#define NUM_POINTS 1094
-#define DR 0.1
+#define NUM_POINTS 10940
+#define DR 0.12315
 
 
 /* Never mind this bit */
@@ -36,12 +36,21 @@ void writefile(fftw_complex* result, double* grid, std::string fname){
     fclose(f1);
 }
 
-void normalize_results(fftw_complex* result)
+void normalize_results_k(fftw_complex* result)
 {
     for (int ii=0; ii<NUM_POINTS*2; ii++)
     {
-        result[ii][REAL] = result[ii][REAL] / ((double)NUM_POINTS*2);
-        result[ii][IMAG] = result[ii][IMAG] / ((double)NUM_POINTS*2);
+        result[ii][REAL] = result[ii][REAL] * DR;
+        result[ii][IMAG] = result[ii][IMAG] * DR;
+    }
+}
+
+void normalize_results_r(fftw_complex* result)
+{
+    for (int ii=0; ii<NUM_POINTS*2; ii++)
+    {
+        result[ii][REAL] = result[ii][REAL] / NUM_POINTS / 2 / DR;
+        result[ii][IMAG] = result[ii][IMAG] / NUM_POINTS / 2 / DR;
     }
 }
 
@@ -55,7 +64,7 @@ int main() {
     for (int ii=0; ii<NUM_POINTS; ii++)
     {
         rgrid[ii] = ii * DR;
-        kgrid[ii] = double(ii / 2.0 / NUM_POINTS);
+        kgrid[ii] = double(ii * 2 * M_PI / NUM_POINTS / 2 / DR);
     }
 
     int ccR = 0;
@@ -63,7 +72,7 @@ int main() {
     for (int ii=NUM_POINTS; ii>0; ii--)
     {
         rgrid[cc] = (-NUM_POINTS + ccR) * DR;
-        kgrid[cc] = -double(ii / 2.0 / NUM_POINTS);
+        kgrid[cc] = -double(ii * 2 * M_PI / NUM_POINTS / 2 / DR);
         cc++;
         ccR++;
     }
@@ -78,6 +87,7 @@ int main() {
                                       FFTW_ESTIMATE);
 
     fftw_execute(plan);
+    normalize_results_k(result);
     writefile(result, kgrid, "gaussian_k.txt");
     fftw_destroy_plan(plan);
 
@@ -88,7 +98,7 @@ int main() {
                                           FFTW_BACKWARD,
                                           FFTW_ESTIMATE);
     fftw_execute(inv_plan);
-    normalize_results(signal_recovered);
+    normalize_results_r(signal_recovered);
     writefile(signal_recovered, rgrid, "gaussian_r_recovered.txt");
     fftw_destroy_plan(inv_plan);
 

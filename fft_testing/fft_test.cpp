@@ -16,10 +16,6 @@
 #define IMAG 1
 
 void acquire_from_somewhere(fftw_complex* signal, double* rgrid) {
-    /* Generate two sine waves of different frequencies and
-     * amplitudes.
-     */
-
     int i;
     const double mu = 1.0;
     const double sd = 1.0;

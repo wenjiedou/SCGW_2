@@ -6,9 +6,9 @@
 #define EPSILON_F 0.25
 #define NGRID_RK 1001
 #define NGRID_TW 1001
-#define K_MAX 100.0
-#define W_MAX 20.0
-#define ALPHA_RS 20.0
+#define K_MAX 2.0
+#define W_MAX 10.0
+#define ALPHA_RS 4.0
 #define M_PI 3.14159265358979323846
 #define NTHREADS 1
 //OMP_NUM_THREADS

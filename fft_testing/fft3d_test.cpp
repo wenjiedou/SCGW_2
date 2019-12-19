@@ -1,7 +1,7 @@
+#include <complex.h>
 #include </usr/local/include/fftw3.h>
 #include <stdio.h>
 #include <math.h>
-#include <complex.h>
 #include <iostream>
 
 #include "aux/aux.h"
@@ -9,7 +9,7 @@
 #define NR 101
 #define DR 1.0
 
-#define NT 1001
+#define NT 5001
 #define DT 0.1
 
 #define SD 0.5
@@ -22,8 +22,8 @@
 #define REAL 0
 #define IMAG 1
 
-void get_oneshot_G_kw_gre_G_les(fftw_complex* G_gre0,
-    fftw_complex* G_les0, const double* wgrid, const double* kgrid)
+void get_oneshot_G_kw_gre_G_les(fftw_complex *G_gre0,
+    fftw_complex *G_les0, const double* wgrid, const double* kgrid)
 {
     double mu, x;
     fftw_complex gsignal[NT*NR];
@@ -204,7 +204,12 @@ int main(int argc, char const *argv[])
 {
 
     // Define the grids
-    double tgrid[NT], wgrid[NT], rgrid[NR], kgrid[NR];
+    double *tgrid, *wgrid, *rgrid, *kgrid;
+    tgrid = new double[NT];
+    wgrid = new double[NT];
+    rgrid = new double[NR];
+    kgrid = new double[NR];
+
     init_grids(NR, DR, NT, DT, tgrid, wgrid, rgrid, kgrid);
     kgrid[0] = 1e-6;
     rgrid[0] = 1e-6;
@@ -212,8 +217,11 @@ int main(int argc, char const *argv[])
     const int kf_index = get_kf_index(kgrid, NR);
     printf("kf index is %i (k=%.05f)\n", kf_index, kgrid[kf_index]);
 
-
-    fftw_complex G_gre0[NT*NR], G_les0[NT*NR], P[NT*NR];
+    // Allocate
+    fftw_complex *G_gre0, *G_les0, *P;
+    G_gre0 = (fftw_complex*) fftw_malloc(NR*NT*sizeof(fftw_complex));
+    G_les0 = (fftw_complex*) fftw_malloc(NR*NT*sizeof(fftw_complex));
+    P = (fftw_complex*) fftw_malloc(NR*NT*sizeof(fftw_complex));
 
     // Construct simple forward and backwards 1d plans, allocate the
     // appropriate contiguous memory
@@ -250,6 +258,20 @@ int main(int argc, char const *argv[])
     inplace_fft_rt_to_kw(P, forward_plan_R, forward_plan_T, in_forward_R,
         in_forward_T, kgrid, rgrid);
     write_row(P, wgrid, kf_index, NT, "P0_kw.txt");
+
+
+    // Cleanup
+    fftw_destroy_plan(forward_plan_R);
+    fftw_destroy_plan(forward_plan_T);
+    fftw_destroy_plan(backward_plan_R);
+    fftw_destroy_plan(backward_plan_T);
+    fftw_free(G_les0);
+    fftw_free(G_gre0);
+    fftw_free(P);
+    delete [] tgrid;
+    delete [] wgrid;
+    delete [] rgrid;
+    delete [] kgrid;
     
     return 0;
 }

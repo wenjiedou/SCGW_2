@@ -62,8 +62,10 @@ void gwOneIteration(GWPARAM *gwParam){
   }
 
   // 2. FFT Gl Gg k,w->k,t
-  fftKWtoRT(gwParam, Gl);
-  fftKWtoRT(gwParam, Gg);
+//  fftKWtoRT(gwParam, Gl);
+//  fftKWtoRT(gwParam, Gg);
+  fftRTtoKW(gwParam, Gl);
+  fftRTtoKW(gwParam, Gg);
 
   
   // 4. Calculate Pl, Pg, Pr
@@ -83,7 +85,7 @@ void gwOneIteration(GWPARAM *gwParam){
   //printf
   if(myid==0){
      for(jGrid=0;jGrid<numGridT;jGrid++){
-        printf("%f %f %f\n", wGrid[jGrid],creal(Gr[jGrid]),cimag(Gr[jGrid]));
+        printf("%f %f %f\n", wGrid[jGrid],creal(Pr[jGrid]),cimag(Pr[jGrid]));
      }
   } 
   // 6. Calculate Wr,Wl,Wg from Pr
@@ -122,6 +124,7 @@ void gwOneIteration(GWPARAM *gwParam){
       index = iGrid*numGridW+jGrid;
 //      Gr[index] = 1.0/(wGrid[jGrid]-epsilonKGridProc[iGrid]-mu-(alpha_rs*(-creal(Sr[index])+I*cimag(Sr[index]))+Sr_HF[iGrid]));
       Gr[index] = 1.0/(wGrid[jGrid]-epsilonKGridProc[iGrid]-mu-(alpha_rs*(-creal(Sr[index])+I*cimag(Sr[index]))));
+//      printf("Grrrrrrrrrrrrr %lg\n",Gr[index]);
     }
   }  
 }
@@ -142,6 +145,8 @@ void fftRTtoKW(GWPARAM *gwParam, double complex *input){
   int myid = gwParam->myid;
   int countRK = gwParam->countRK;
   int countTW = gwParam->countTW;
+  int iThread;
+  int numThreads = gwParam->numThreads;
   int *allCountsRK = gwParam->allCountsRK;
   int *allCountsTW = gwParam->allCountsTW;
   int *displsRK = gwParam->displsRK;
@@ -163,14 +168,19 @@ void fftRTtoKW(GWPARAM *gwParam, double complex *input){
     inputFake = input;
   }
 
-  fftw_complex *in_backward_rk = gwParam->in_backward_rk;
-  fftw_complex *in_backward_tw = gwParam->in_backward_tw;
+  fftw_complex **in_backward_rk = gwParam->in_backward_rk;
+  fftw_complex **in_backward_tw = gwParam->in_backward_tw;
 
   // 1. Transfrom t->w (r,t->r,w)
-  for(iGrid=0;iGrid<numGridProcR;iGrid++){
-    memcpy(in_backward_tw,&input[iGrid*numGridT],numGridT*sizeof(double complex));
-    fftw_execute(gwParam->plan_tw_backward);
-    memcpy(&input[iGrid*numGridT],in_backward_tw,numGridT*sizeof(double complex));
+  #pragma omp parallel private(iThread,iGrid)
+  {
+    iThread = omp_get_thread_num();
+    #pragma omp for
+    for(iGrid=0;iGrid<numGridProcR;iGrid++){
+      memcpy(in_backward_tw[iThread],&input[iGrid*numGridT],numGridT*sizeof(double complex));
+      fftw_execute(gwParam->plan_tw_backward[iThread]);
+      memcpy(&input[iGrid*numGridT],in_backward_tw[iThread],numGridT*sizeof(double complex));
+    }
   }
 
   // 2. possible MPI gatherv
@@ -181,11 +191,11 @@ void fftRTtoKW(GWPARAM *gwParam, double complex *input){
 
   // 3. transpose and scatterv (r,w->w,r)
   if(numProc==1){
-    mkl_zimatcopy('c','t',numGridR,numGridT,alpha,input,numGridR,numGridT);
+    mkl_zimatcopy('r','t',numGridR,numGridT,alpha,input,numGridT,numGridR);
   }
   else{
     if(myid==0){
-      mkl_zimatcopy('c','t',numGridR,numGridT,alpha,temp,numGridR,numGridT);
+      mkl_zimatcopy('r','t',numGridR,numGridT,alpha,temp,numGridT,numGridR);
     }
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Scatterv(temp,allCountsTW,displsTW,MPI_DOUBLE,inputFake,countTW,
@@ -210,10 +220,15 @@ void fftRTtoKW(GWPARAM *gwParam, double complex *input){
   }
 
   // 4. Transform r->k (w,r->w,k)
-  for(iGrid=0;iGrid<numGridProcW;iGrid++){
-    memcpy(in_backward_rk,&inputFake[iGrid*numGridT],numGridR*sizeof(double complex));
-    fftw_execute(gwParam->plan_rk_backward);
-    memcpy(&inputFake[iGrid*numGridT],in_backward_rk,numGridR*sizeof(double complex));
+  #pragma omp parallel private(iThread,iGrid)
+  {
+    iThread = omp_get_thread_num();
+    #pragma omp for
+    for(iGrid=0;iGrid<numGridProcW;iGrid++){
+      memcpy(in_backward_rk[iThread],&inputFake[iGrid*numGridR],numGridR*sizeof(double complex));
+      fftw_execute(gwParam->plan_rk_backward[iThread]);
+      memcpy(&inputFake[iGrid*numGridR],in_backward_rk[iThread],numGridR*sizeof(double complex));
+    }
   }
 
   // inputFake multiply by -1j/kGrid*dr*numGridR/(2.0*pi)**2 * (2.0*pi)**3
@@ -233,11 +248,11 @@ void fftRTtoKW(GWPARAM *gwParam, double complex *input){
 
   // 6. transpose and scatterv (w,k->k,w)
   if(numProc==1){
-    mkl_zimatcopy('c','t',numGridT,numGridR,alpha,input,numGridT,numGridR);
+    mkl_zimatcopy('r','t',numGridT,numGridR,alpha,input,numGridR,numGridT);
   }
   else{
     if(myid==0){
-      mkl_zimatcopy('c','t',numGridT,numGridR,alpha,temp,numGridT,numGridR);
+      mkl_zimatcopy('r','t',numGridT,numGridR,alpha,temp,numGridR,numGridT);
     }
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Scatterv(temp,allCountsRK,displsRK,MPI_DOUBLE,input,countRK,
@@ -255,6 +270,7 @@ void fftRTtoKW(GWPARAM *gwParam, double complex *input){
 void fftKWtoRT(GWPARAM *gwParam, double complex *input){
   int iGrid,jGrid,kGrid,iProc;
   int index;
+  int iThread;
   int numGridK = gwParam->numGridK;
   int numGridR = gwParam->numGridR;
   int numGridT = gwParam->numGridT;
@@ -289,14 +305,19 @@ void fftKWtoRT(GWPARAM *gwParam, double complex *input){
     inputFake = input;
   }
 
-  fftw_complex *in_forward_rk = gwParam->in_forward_rk;
-  fftw_complex *in_forward_tw = gwParam->in_forward_tw;
+  fftw_complex **in_forward_rk = gwParam->in_forward_rk;
+  fftw_complex **in_forward_tw = gwParam->in_forward_tw;
 
   // 1. Transfrom w->t (k,w->k,t)
-  for(iGrid=0;iGrid<numGridProcR;iGrid++){
-    memcpy(in_forward_tw,&input[iGrid*numGridT],numGridT*sizeof(double complex));
-    fftw_execute(gwParam->plan_tw_forward);
-    memcpy(&input[iGrid*numGridT],in_forward_tw,numGridT*sizeof(double complex));
+  #pragma omp parallel private(iThread,iGrid)
+  {
+    iThread = omp_get_thread_num();
+    #pragma omp for
+    for(iGrid=0;iGrid<numGridProcR;iGrid++){
+      memcpy(in_forward_tw[iThread],&input[iGrid*numGridT],numGridT*sizeof(double complex));
+      fftw_execute(gwParam->plan_tw_forward[iThread]);
+      memcpy(&input[iGrid*numGridT],in_forward_tw[iThread],numGridT*sizeof(double complex));
+    }
   }
 
   // 2. possible MPI gatherv
@@ -307,11 +328,11 @@ void fftKWtoRT(GWPARAM *gwParam, double complex *input){
 
   // 3. transpose and scatterv (k,t->t,k)
   if(numProc==1){
-    mkl_zimatcopy('c','t',numGridR,numGridT,alpha,input,numGridR,numGridT);
+    mkl_zimatcopy('r','t',numGridR,numGridT,alpha,input,numGridT,numGridR);
   }
   else{
     if(myid==0){
-      mkl_zimatcopy('c','t',numGridR,numGridT,alpha,temp,numGridR,numGridT);
+      mkl_zimatcopy('r','t',numGridR,numGridT,alpha,temp,numGridT,numGridR);
     }
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Scatterv(temp,allCountsTW,displsTW,MPI_DOUBLE,inputFake,countTW,
@@ -336,10 +357,15 @@ void fftKWtoRT(GWPARAM *gwParam, double complex *input){
   }
 
   // 4. Transform k->r (t,k->t,r)
-  for(iGrid=0;iGrid<numGridProcW;iGrid++){
-    memcpy(in_forward_rk,&inputFake[iGrid*numGridT],numGridR*sizeof(double complex));
-    fftw_execute(gwParam->plan_rk_forward);
-    memcpy(&inputFake[iGrid*numGridT],in_forward_rk,numGridR*sizeof(double complex));
+  #pragma omp parallel private(iThread,iGrid)
+  {
+    iThread = omp_get_thread_num();
+    #pragma omp for
+    for(iGrid=0;iGrid<numGridProcW;iGrid++){
+      memcpy(in_forward_rk[iThread],&inputFake[iGrid*numGridR],numGridR*sizeof(double complex));
+      fftw_execute(gwParam->plan_rk_forward[iThread]);
+      memcpy(&inputFake[iGrid*numGridR],in_forward_rk[iThread],numGridR*sizeof(double complex));
+    }
   }
 
   // inputFake multiply by 1j*2*pi/(2*pi)**2/rGrid/dr/numGridR
@@ -358,11 +384,11 @@ void fftKWtoRT(GWPARAM *gwParam, double complex *input){
 
   // 6. transpose and scatterv (t,r->r,t)
   if(numProc==1){
-    mkl_zimatcopy('c','t',numGridT,numGridR,alpha,input,numGridT,numGridR);
+    mkl_zimatcopy('r','t',numGridT,numGridR,alpha,input,numGridR,numGridT);
   }
   else{
     if(myid==0){
-      mkl_zimatcopy('c','t',numGridT,numGridR,alpha,temp,numGridT,numGridR);
+      mkl_zimatcopy('r','t',numGridT,numGridR,alpha,temp,numGridR,numGridT);
     }
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Scatterv(temp,allCountsRK,displsRK,MPI_DOUBLE,input,countRK,
@@ -386,6 +412,7 @@ void init(GWPARAM *gwParam){
   int numGridK,numGridR,numGridT,numGridW;
   int numGridProcK,numGridProcR,numGridProcT,numGridProcW;
   int displKRPoint; // starting index of Vk, epsilonK on each process
+  int numThreads,iThread;
   int *allCountsRK,*allCountsTW,*displsRK,*displsTW;
   double w,dw,k,dk,dr,mu;
   double epsilonF;
@@ -485,12 +512,43 @@ void init(GWPARAM *gwParam){
     }
   }//endif numProc
 
+  // initialize openMP
+  // You can set the number of threads by setting OMP_NUM_THREADS
+  omp_set_num_threads(NTHREADS);
+  gwParam->numThreads = omp_get_max_threads();
+  numThreads = gwParam->numThreads;
+//  printf("numThreads %i\n",numThreads);
+
   // FFTW initialize
-  gwParam->in_forward_rk = (fftw_complex*)fftw_malloc(numGridR*sizeof(fftw_complex));
-  gwParam->in_backward_rk = (fftw_complex*)fftw_malloc(numGridR*sizeof(fftw_complex));
-  gwParam->in_forward_tw = (fftw_complex*)fftw_malloc(numGridT*sizeof(fftw_complex));
-  gwParam->in_backward_tw = (fftw_complex*)fftw_malloc(numGridT*sizeof(fftw_complex));
   
+  gwParam->in_forward_rk = (fftw_complex**)malloc(numThreads*sizeof(fftw_complex*));
+  gwParam->in_backward_rk = (fftw_complex**)malloc(numThreads*sizeof(fftw_complex*));
+  gwParam->in_forward_tw = (fftw_complex**)malloc(numThreads*sizeof(fftw_complex*));
+  gwParam->in_backward_tw = (fftw_complex**)malloc(numThreads*sizeof(fftw_complex*));
+
+  for(iThread=0;iThread<numThreads;iThread++){
+    gwParam->in_forward_rk[iThread] = (fftw_complex*)fftw_malloc(numGridR*sizeof(fftw_complex));
+    gwParam->in_backward_rk[iThread] = (fftw_complex*)fftw_malloc(numGridR*sizeof(fftw_complex));
+    gwParam->in_forward_tw[iThread] = (fftw_complex*)fftw_malloc(numGridT*sizeof(fftw_complex));
+    gwParam->in_backward_tw[iThread] = (fftw_complex*)fftw_malloc(numGridT*sizeof(fftw_complex));
+//    printf("111111111111111 %i %p %p %p %p\n",iThread,gwParam->in_forward_rk[iThread],gwParam->in_backward_rk[iThread],gwParam->in_forward_tw[iThread],gwParam->in_backward_tw[iThread]);
+  }
+  gwParam->plan_rk_forward = (fftw_plan*)malloc(numThreads*sizeof(fftw_plan)); 
+  gwParam->plan_rk_backward = (fftw_plan*)malloc(numThreads*sizeof(fftw_plan));
+  gwParam->plan_tw_forward = (fftw_plan*)malloc(numThreads*sizeof(fftw_plan));
+  gwParam->plan_tw_backward = (fftw_plan*)malloc(numThreads*sizeof(fftw_plan));
+  for(iThread=0;iThread<numThreads;iThread++){
+    gwParam->plan_rk_forward[iThread] = fftw_plan_dft_1d(numGridR,gwParam->in_forward_rk[iThread],
+                                     gwParam->in_forward_rk[iThread],FFTW_FORWARD,FFTW_MEASURE);
+    gwParam->plan_rk_backward[iThread] = fftw_plan_dft_1d(numGridR,gwParam->in_backward_rk[iThread],
+                                     gwParam->in_backward_rk[iThread],FFTW_BACKWARD,FFTW_MEASURE);
+    gwParam->plan_tw_forward[iThread] = fftw_plan_dft_1d(numGridT,gwParam->in_forward_tw[iThread],
+                                     gwParam->in_forward_tw[iThread],FFTW_FORWARD,FFTW_MEASURE);
+    gwParam->plan_tw_backward[iThread] = fftw_plan_dft_1d(numGridT,gwParam->in_backward_tw[iThread],
+                                     gwParam->in_backward_tw[iThread],FFTW_BACKWARD,FFTW_MEASURE);
+  }
+
+  /*
   gwParam->plan_rk_forward = fftw_plan_dft_1d(numGridR,gwParam->in_forward_rk,
                                      gwParam->in_forward_rk,FFTW_FORWARD,FFTW_MEASURE);
   gwParam->plan_rk_backward = fftw_plan_dft_1d(numGridR,gwParam->in_backward_rk,
@@ -499,6 +557,7 @@ void init(GWPARAM *gwParam){
                                      gwParam->in_forward_tw,FFTW_FORWARD,FFTW_MEASURE);
   gwParam->plan_tw_backward = fftw_plan_dft_1d(numGridT,gwParam->in_forward_tw,
                                      gwParam->in_forward_tw,FFTW_BACKWARD,FFTW_MEASURE);
+  */
 
   // Initialize grid spacing
   gwParam->dk = 2.0*K_MAX/NGRID_RK; // -K_MAX to K_MAX
@@ -604,26 +663,39 @@ void init(GWPARAM *gwParam){
     #pragma omp parallel for private(jGrid,index)
     for(jGrid=0;jGrid<numGridW;jGrid++){
       index = iGrid*numGridW+jGrid;
-      Gr[index] = 1.0/(wGrid[jGrid]-epsilonKGridProc[iGrid]+I*GF_ETA);
+//      Gr[index] = 1.0/(wGrid[jGrid]-epsilonKGridProc[iGrid]+I*GF_ETA);
+      Gr[index] = -I*2.0*exp(-(wGrid[jGrid]-mu)*(wGrid[jGrid]-mu)*0.5/(SD*SD))/(sqrt(2.0*M_PI)*SD);
     }
   }
 
   free(vkGrid);
   free(epsilonKGrid);
+
 }
 
 
 void clean(GWPARAM *gwParam){
+  int numThreads = gwParam->numThreads;
+  int iThread; 
   
-  fftw_destroy_plan(gwParam->plan_rk_forward); 
-  fftw_destroy_plan(gwParam->plan_rk_backward);
-  fftw_destroy_plan(gwParam->plan_tw_forward);
-  fftw_destroy_plan(gwParam->plan_tw_backward);
-  fftw_free(gwParam->in_forward_rk);
-  fftw_free(gwParam->in_backward_rk);
-  fftw_free(gwParam->in_forward_tw);
-  fftw_free(gwParam->in_backward_tw);
-
+  for(iThread=0;iThread<numThreads;iThread++){
+    fftw_destroy_plan(gwParam->plan_rk_forward[iThread]); 
+    fftw_destroy_plan(gwParam->plan_rk_backward[iThread]);
+    fftw_destroy_plan(gwParam->plan_tw_forward[iThread]);
+    fftw_destroy_plan(gwParam->plan_tw_backward[iThread]);
+    fftw_free(gwParam->in_forward_rk[iThread]);
+    fftw_free(gwParam->in_backward_rk[iThread]);
+    fftw_free(gwParam->in_forward_tw[iThread]);
+    fftw_free(gwParam->in_backward_tw[iThread]);
+  }
+  free(gwParam->plan_rk_forward);
+  free(gwParam->plan_rk_backward);
+  free(gwParam->plan_tw_forward);
+  free(gwParam->plan_tw_backward);
+  free(gwParam->in_forward_rk);
+  free(gwParam->in_backward_rk);
+  free(gwParam->in_forward_tw);
+  free(gwParam->in_backward_tw);
 }
 
 

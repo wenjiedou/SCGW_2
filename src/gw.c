@@ -12,7 +12,7 @@
 /* One iteration GW calculation */
 void gwOneIteration(GWPARAM *gwParam){
   int iGrid,jGrid,kGrid;
-  int index;
+  int index, ii;
   int numGridK = gwParam->numGridK;
   int numGridR = gwParam->numGridR;
   int numGridT = gwParam->numGridT;
@@ -113,16 +113,6 @@ void gwOneIteration(GWPARAM *gwParam){
        Sr[index] = (Sg[index] - Sl[index])*thetaT[jGrid];
      }
    }
-
-  // Do something really dumb: rewrite the input with a bunch of Gaussians
-  double mu = 1.0;
-  double sd = 1.0;
-  double dr = 0.1;
-  double x;
-  for (iGrid=0;iGrid<numGridT;iGrid++){
-    x = tGrid[iGrid]
-    Sr[iGrid] = exp(-(x-mu)*(x-mu)/2.0/sd/sd)/sd/sqrt(2.0*M_PI)
-  }
 
   // 9. Sr FFT r,t->k,w
   fftRTtoKW(gwParam, Sr);

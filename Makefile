@@ -30,6 +30,7 @@ all: $(BLDDIR)/gw_mpi
 clean:
 	rm -f $(BLDDIR)/gw.o $(BLDDIR)/main.o 
 	rm -f $(BLDDIR)/gw_mpi
+	rm $(BLDDIR)/*.txt
 
 install:
 	cp -f $(BLDDIR)/gw_mpi $(INSTALL_DIR)/gw_mpi

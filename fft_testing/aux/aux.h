@@ -13,6 +13,8 @@ void element_wise_multiply_by_KR_grid(fftw_complex* array,
     const double* grid, const int m, const int n);
 void element_wise_divide_by_KR_grid(fftw_complex* array,
     const double* grid, const int m, const int n);
+void element_wise_multiply_by_constant(fftw_complex* array,
+    const double c, const int m, const int n);
 void init_grids(const int numR, const double dR, const int numT,
     const double dT, double* tgrid, double* wgrid, double* rgrid,
     double* kgrid);

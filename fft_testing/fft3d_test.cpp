@@ -6,13 +6,13 @@
 
 #include "aux/aux.h"
 
-#define NR 101
+#define NR 1001
 #define DR 1.0
 
-#define NT 5001
+#define NT 10001
 #define DT 0.1
 
-#define SD 0.5
+#define SD 6.28e-03
 #define EF 0.25
 #define KF 0.5
 
@@ -22,11 +22,13 @@
 #define REAL 0
 #define IMAG 1
 
+
 void get_oneshot_G_kw_gre_G_les(fftw_complex *G_gre0,
     fftw_complex *G_les0, const double* wgrid, const double* kgrid)
 {
     double mu, x;
-    fftw_complex gsignal[NT*NR];
+    fftw_complex *gsignal;
+    gsignal = (fftw_complex*) fftw_malloc(NR*NT*sizeof(fftw_complex));
     for (int kk=0; kk<NR; kk++)
     {
         mu = kgrid[kk]*kgrid[kk] - EF;
@@ -36,7 +38,7 @@ void get_oneshot_G_kw_gre_G_les(fftw_complex *G_gre0,
 
             // Note the -2 "normalization" factor for A
             gsignal[ww+NT*kk][REAL] = 
-                -2.0 * exp(-(x-mu)*(x-mu)/2.0/SD/SD)/SD/sqrt(2.0*M_PI);
+                -2.0 * M_PI * exp(-(x-mu)*(x-mu)/2.0/SD/SD)/SD/sqrt(2.0*M_PI);
             gsignal[ww+NT*kk][IMAG] = 0.0;
         }
     }
@@ -63,6 +65,7 @@ void get_oneshot_G_kw_gre_G_les(fftw_complex *G_gre0,
             }
         }
     }
+    fftw_free(gsignal);
 }
 
 void get_P_rt(const fftw_complex* G_les, const fftw_complex* G_gre,
@@ -79,7 +82,7 @@ void get_P_rt(const fftw_complex* G_les, const fftw_complex* G_gre,
             {
                 P_rt[ii][REAL] =
                     4.0 * (G_gre[ii][IMAG]*G_les[ii][REAL]
-                           - G_gre[ii][REAL]*G_les[ii][IMAG]);
+                           - G_gre[ii][REAL]*G_les[ii][IMAG]) / 2.0 / M_PI;
             }
             else
             {
@@ -135,7 +138,7 @@ void inplace_ifft_kw_to_rt(fftw_complex* signal, fftw_plan plan_R,
     element_wise_multiply_by_KR_grid(signal, kgrid, NR, NT);
 
     // Symmetrize over the k-axis
-    symmetrize_over_0th_axis(signal, NR, NT);    
+    symmetrize_over_0th_axis(signal, NR, NT);
 
     // Execute iFFT with normalization: k, w -> k, t
     for(int iGrid=0;iGrid<NR;iGrid++)
@@ -251,12 +254,13 @@ int main(int argc, char const *argv[])
     inplace_ifft_kw_to_rt(G_gre0, backward_plan_R, backward_plan_T,
         in_backward_R, in_backward_T, kgrid, rgrid);
     inplace_ifft_kw_to_rt(G_les0, backward_plan_R, backward_plan_T,
-       in_backward_R, in_backward_T, kgrid, rgrid);
+        in_backward_R, in_backward_T, kgrid, rgrid);
     
     //Compute P(r, t) = GG
     get_P_rt(G_les0, G_gre0, P, tgrid);
     inplace_fft_rt_to_kw(P, forward_plan_R, forward_plan_T, in_forward_R,
         in_forward_T, kgrid, rgrid);
+    element_wise_multiply_by_constant(P, ALPHA*RS, NR, NT);
     write_row(P, wgrid, kf_index, NT, "P0_kw.txt");
 
 

@@ -39,7 +39,8 @@ void print_matrix_form(fftw_complex *array, const int m, const int n)
 
 void transpose(fftw_complex *array, int m, int n)
 {
-    fftw_complex new_array[m * n];
+    fftw_complex *new_array;
+    new_array = (fftw_complex*) fftw_malloc(m*n*sizeof(fftw_complex));
     for (int i = 0; i < m; i++)
     {
         for (int j = 0; j < n; j++)
@@ -55,6 +56,7 @@ void transpose(fftw_complex *array, int m, int n)
         array[i][REAL] = new_array[i][REAL];
         array[i][IMAG] = new_array[i][IMAG];
     }
+    fftw_free(new_array);
 }
 
 void element_wise_multiply(const fftw_complex* in1, const fftw_complex* in2,
@@ -70,6 +72,21 @@ void element_wise_multiply(const fftw_complex* in1, const fftw_complex* in2,
                 - in1[index][IMAG] * in2[index][IMAG];
             out[index][IMAG] = in1[index][REAL] * in2[index][IMAG]
                 + in2[index][REAL] * in1[index][IMAG];
+        }
+    }   
+}
+
+void element_wise_multiply_by_constant(fftw_complex* array,
+    const double c, const int m, const int n)
+{
+    int index;
+    for (int ii=0; ii<m; ii++) // number of rows
+    {
+        for (int jj=0; jj<n; jj++) // number of columns
+        {
+            index = jj + ii*n;
+            array[index][REAL] = array[index][REAL] * c;
+            array[index][IMAG] = array[index][IMAG] * c;
         }
     }   
 }

@@ -112,8 +112,26 @@ void gwOneIteration(GWPARAM *gwParam){
      }
    }
 
+  // Do something really dumb: rewrite the input with a bunch of Gaussians
+  double mu = 1.0;
+  double sd = 1.0;
+  double dr = 0.1;
+  double x;
+  for (iGrid=0;iGrid<numGridT;iGrid++){
+    x = tGrid[iGrid]
+    Sr[iGrid] = exp(-(x-mu)*(x-mu)/2.0/sd/sd)/sd/sqrt(2.0*M_PI)
+  }
+
   // 9. Sr FFT r,t->k,w
   fftRTtoKW(gwParam, Sr);
+
+  FILE *f1;
+  f1 = fopen("gaussian_Kspace.txt", "w");
+  for (ii=0; ii < numGridW; ii++)
+  {
+    fprintf(f1, "%f %f %f\n", wGrid[ii], creal(Sr[ii]), cimag(Sr[ii]));
+  }
+  fclose(f1);
   
   // 10. Update Gr
   for(iGrid=0;iGrid<numGridProcK;iGrid++){
